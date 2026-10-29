@@ -2,8 +2,14 @@
 .github/
 **/.DS_Store
 .env
+.env.*
 docs/
 *.md
 *.docx
 *.pages
 *.rar
+*.zip
+*.log
+.vscode/
+.idea/
+docker-compose*.yml
