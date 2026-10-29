@@ -6,7 +6,7 @@ Documentation technique pour la **Partie 7** du projet de conteneurisation.
 
 ## 1. Architecture du pipeline d'automatisation (.github/workflows/docker.yml)
 
-Le déploiement continu et la validation qualité sont orchestrés par **GitHub Actions**. Le fichier de configuration [.github/workflows/docker.yml](file:///c:/Users/Wight/OneDrive/Documents/Cours%20Master/M2/Dev%20Docker/Projet%20Final/dev-docker-projet-final/.github/workflows/docker.yml) automatise l'intégralité du cycle de vie du code à chaque modification.
+Le déploiement continu et la validation qualité sont orchestrés par **GitHub Actions**. Le fichier [.github/workflows/docker.yml](../.github/workflows/docker.yml) automatise le cycle du code à chaque modification.
 
 ### 1.1 Événements déclencheurs (Triggers)
 Le pipeline s'active automatiquement lors :
@@ -36,10 +36,9 @@ Le workflow est découpé en deux étapes interdépendantes :
 │  JOB 2 : Build, Scan & Publish                │
 │  - Initialisation Docker Buildx & Cache GHA   │
 │  - Authentification sécurisée Docker Hub      │
-│  - Extraction métadonnées (latest, sha-xxxx)  │
-│  - Construction & Scan Trivy (articles-web)   │
-│  - Construction (articles-db)                 │
-│  - Push automatique des 2 images étiquetées   │
+│  - Construction locale des deux images        │
+│  - Scan Trivy des images chargées             │
+│  - Push latest et sha- si les secrets existent│
 └───────────────────────────────────────────────┘
 ```
 
@@ -54,8 +53,8 @@ Dès que les tests sont validés :
 2. **Double étiquetage systématique** :
    - Tag `latest` : désigne la version de référence en production.
    - Tag `sha-<commit>` : assure la traçabilité immuable entre le commit Git et l'image Docker correspondante.
-3. **Scan Trivy automatisé** : L'action officielle Aqua Security analyse l'image `articles-web` produite et consigne le rapport des failles directement dans les logs du build.
-4. **Publication sur Docker Hub** : Les images `articles-web` et `articles-db` sont téléversées sur le registre public.
+3. **Scan Trivy** : chaque image est chargée localement (`articles-web:ci`, `articles-db:ci`) puis analysée. Le job échoue si Trivy ne peut pas lire l'image, ou si une faille CRITICAL ou HIGH a un correctif publié. Les failles sans correctif, celles de la partie 5, ne bloquent pas le pipeline (`ignore-unfixed`).
+4. **Publication sur Docker Hub** : sur un push vers `main`, et seulement si `DOCKERHUB_USERNAME` et `DOCKERHUB_TOKEN` sont définis, les deux images sont poussées avec les tags `latest` et `sha-` suivi des 7 premiers caractères du commit. Aucun nom de compte n'est écrit dans le workflow.
 
 ---
 
@@ -82,15 +81,15 @@ docker login -u <username>
 
 # 2. Étiquetage de l'image applicative
 docker tag articles-web:dev <username>/articles-web:latest
-docker tag articles-web:dev <username>/articles-web:v1.0.0
+docker tag articles-web:dev <username>/articles-web:sha-<commit>
 
 # 3. Étiquetage de l'image de base de données
 docker tag articles-db:dev <username>/articles-db:latest
-docker tag articles-db:dev <username>/articles-db:v1.0.0
+docker tag articles-db:dev <username>/articles-db:sha-<commit>
 
 # 4. Publication sur le registre distant
 docker push <username>/articles-web:latest
-docker push <username>/articles-web:v1.0.0
+docker push <username>/articles-web:sha-<commit>
 docker push <username>/articles-db:latest
-docker push <username>/articles-db:v1.0.0
+docker push <username>/articles-db:sha-<commit>
 ```

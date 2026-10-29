@@ -2,17 +2,11 @@ name: CI/CD Pipeline - Build, Test & Publish
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
   pull_request:
-    branches: [ "main" ]
-
-env:
-  DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USERNAME || 'arthurccy' }}
+    branches: ["main"]
 
 jobs:
-  # -------------------------------------------------------------
-  # JOB 1 : Analyse syntaxique, validation du code et du Compose
-  # -------------------------------------------------------------
   lint-and-test:
     name: Lint & Syntax Tests
     runs-on: ubuntu-latest
@@ -23,22 +17,17 @@ jobs:
       - name: Configuration de l'environnement PHP
         uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.2'
+          php-version: "8.2"
           extensions: pdo, pdo_mysql, mysqli
 
       - name: Analyse syntaxique PHP (php -l)
-        run: |
-          echo "Vérification des erreurs de syntaxe PHP..."
-          find sources/app -name "*.php" -print0 | xargs -0 -n1 php -l
+        run: find sources/app -name "*.php" -print0 | xargs -0 -n1 php -l
 
       - name: Validation de la configuration Docker Compose
         run: |
           cp .env.example .env
-          docker compose config
+          docker compose config --quiet
 
-  # -------------------------------------------------------------
-  # JOB 2 : Construction des images, scan de sécurité & publication
-  # -------------------------------------------------------------
   build-and-publish:
     name: Build, Scan & Publish
     needs: lint-and-test
@@ -50,65 +39,62 @@ jobs:
       - name: Configuration de Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Connexion sécurisée à Docker Hub
-        if: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
+      - name: Connexion à Docker Hub
+        if: github.event_name != 'pull_request' && secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != ''
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # ---------------------------------------------------------
-      # Service WEB : Build, Scan Trivy et Push
-      # ---------------------------------------------------------
-      - name: Extraction des métadonnées (Web)
-        id: meta-web
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.DOCKERHUB_USER }}/articles-web
-          tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=sha,format=short,prefix=sha-
-
-      - name: Construction de l'image Web
+      - name: Construction de l'image web
         uses: docker/build-push-action@v5
         with:
           context: .
           file: Dockerfile
-          push: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' && github.event_name != 'pull_request' }}
-          tags: ${{ steps.meta-web.outputs.tags }}
-          labels: ${{ steps.meta-web.outputs.labels }}
+          load: true
+          push: false
+          tags: articles-web:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Scan de vulnérabilités Trivy (Web)
-        uses: aquasecurity/trivy-action@master
+      - name: Scan Trivy de l'image web
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
-          image-ref: ${{ env.DOCKERHUB_USER }}/articles-web:latest
-          format: 'table'
-          exit-code: '0'
+          image-ref: articles-web:ci
+          format: table
+          exit-code: "1"
           ignore-unfixed: true
-          severity: 'CRITICAL,HIGH'
-        continue-on-error: true
+          severity: CRITICAL,HIGH
 
-      # ---------------------------------------------------------
-      # Service DB : Build et Push
-      # ---------------------------------------------------------
-      - name: Extraction des métadonnées (DB)
-        id: meta-db
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.DOCKERHUB_USER }}/articles-db
-          tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=sha,format=short,prefix=sha-
-
-      - name: Construction de l'image Base de données
+      - name: Construction de l'image base
         uses: docker/build-push-action@v5
         with:
           context: .
           file: docker/mysql/Dockerfile
-          push: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' && github.event_name != 'pull_request' }}
-          tags: ${{ steps.meta-db.outputs.tags }}
-          labels: ${{ steps.meta-db.outputs.labels }}
+          load: true
+          push: false
+          tags: articles-db:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Scan Trivy de l'image base
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: articles-db:ci
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: CRITICAL,HIGH
+
+      - name: Publication Docker Hub
+        if: github.event_name != 'pull_request' && secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != ''
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+        run: |
+          sha="${GITHUB_SHA::7}"
+          for image in articles-web articles-db; do
+            docker tag "${image}:ci" "${DOCKERHUB_USERNAME}/${image}:latest"
+            docker tag "${image}:ci" "${DOCKERHUB_USERNAME}/${image}:sha-${sha}"
+            docker push "${DOCKERHUB_USERNAME}/${image}:latest"
+            docker push "${DOCKERHUB_USERNAME}/${image}:sha-${sha}"
+          done
