@@ -23,6 +23,18 @@ services:
       timeout: 5s
       retries: 3
       start_period: 15s
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    tmpfs:
+      - /var/run/apache2:rw,noexec,nosuid,size=16m
+      - /var/lock/apache2:rw,noexec,nosuid,size=16m
+      - /var/log/apache2:rw,noexec,nosuid,size=32m
+      - /tmp:rw,noexec,nosuid,size=32m
     networks:
       - app-network
 
