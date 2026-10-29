@@ -4,8 +4,8 @@ Application PHP de gestion d’articles, servie par Apache et persistée dans My
 
 Images publiées :
 
-- [clemlmd/articles-web](https://hub.docker.com/r/clemlmd/articles-web)
-- [clemlmd/articles-db](https://hub.docker.com/r/clemlmd/articles-db)
+- [clemlmd/articles-web](https://hub.docker.com/r/clemlmd/articles-web) · [newklowz/articles-web](https://hub.docker.com/r/newklowz/articles-web)
+- [clemlmd/articles-db](https://hub.docker.com/r/clemlmd/articles-db) · [newklowz/articles-db](https://hub.docker.com/r/newklowz/articles-db)
 
 Le détail de l’architecture est dans [docs/architecture.md](docs/architecture.md).
 
