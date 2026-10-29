@@ -3,7 +3,7 @@
 FROM php:8.2-apache
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends libcap2-bin \
+    && apt-get install -y --no-install-recommends libcap2-bin iputils-ping \
     && docker-php-ext-install -j"$(nproc)" pdo_mysql mysqli \
     && setcap 'cap_net_bind_service=+ep' /usr/sbin/apache2 \
     && mkdir -p /var/run/apache2 /var/lock/apache2 \
