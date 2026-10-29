@@ -1,0 +1,114 @@
+name: CI/CD Pipeline - Build, Test & Publish
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USERNAME || 'arthurccy' }}
+
+jobs:
+  # -------------------------------------------------------------
+  # JOB 1 : Analyse syntaxique, validation du code et du Compose
+  # -------------------------------------------------------------
+  lint-and-test:
+    name: Lint & Syntax Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout du dépôt
+        uses: actions/checkout@v4
+
+      - name: Configuration de l'environnement PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: pdo, pdo_mysql, mysqli
+
+      - name: Analyse syntaxique PHP (php -l)
+        run: |
+          echo "Vérification des erreurs de syntaxe PHP..."
+          find sources/app -name "*.php" -print0 | xargs -0 -n1 php -l
+
+      - name: Validation de la configuration Docker Compose
+        run: |
+          cp .env.example .env
+          docker compose config
+
+  # -------------------------------------------------------------
+  # JOB 2 : Construction des images, scan de sécurité & publication
+  # -------------------------------------------------------------
+  build-and-publish:
+    name: Build, Scan & Publish
+    needs: lint-and-test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout du dépôt
+        uses: actions/checkout@v4
+
+      - name: Configuration de Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Connexion sécurisée à Docker Hub
+        if: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # ---------------------------------------------------------
+      # Service WEB : Build, Scan Trivy et Push
+      # ---------------------------------------------------------
+      - name: Extraction des métadonnées (Web)
+        id: meta-web
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.DOCKERHUB_USER }}/articles-web
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,format=short,prefix=sha-
+
+      - name: Construction de l'image Web
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile
+          push: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' && github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta-web.outputs.tags }}
+          labels: ${{ steps.meta-web.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Scan de vulnérabilités Trivy (Web)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.DOCKERHUB_USER }}/articles-web:latest
+          format: 'table'
+          exit-code: '0'
+          ignore-unfixed: true
+          severity: 'CRITICAL,HIGH'
+        continue-on-error: true
+
+      # ---------------------------------------------------------
+      # Service DB : Build et Push
+      # ---------------------------------------------------------
+      - name: Extraction des métadonnées (DB)
+        id: meta-db
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.DOCKERHUB_USER }}/articles-db
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,format=short,prefix=sha-
+
+      - name: Construction de l'image Base de données
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: docker/mysql/Dockerfile
+          push: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' && github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta-db.outputs.tags }}
+          labels: ${{ steps.meta-db.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
